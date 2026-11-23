@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>AI Studio Workspace — Free</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-svg@1.1.0/lib/qrcode.min.js"></script>
+  </head>
+  <body class="bg-slate-950 text-white antialiased">
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useMemo } = React;
+
+      function usePWAInstall() {
+        const [deferredPrompt, setDeferredPrompt] = useState(null);
+        const [isInstalled, setIsInstalled] = useState(false);
+        const [isIOS, setIsIOS] = useState(false);
+
+        useEffect(() => {
+          const standalone =
+            window.matchMedia("(display-mode: standalone)").matches ||
+            window.navigator.standalone === true;
+          setIsInstalled(standalone);
+
+          const ua = window.navigator.userAgent.toLowerCase();
+          const ios = /iphone|ipad|ipod/.test(ua);
+          setIsIOS(ios && !standalone);
+
+          const onBeforeInstall = (e) => {
+            e.preventDefault();
+            setDeferredPrompt(e);
+          };
+
+          const onInstalled = () => {
+            setIsInstalled(true);
+            setDeferredPrompt(null);
+          };
+
+          window.addEventListener("beforeinstallprompt", onBeforeInstall);
+          window.addEventListener("appinstalled", onInstalled);
+
+          return () => {
+            window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+            window.removeEventListener("appinstalled", onInstalled);
+          };
+        }, []);
+
+        const promptInstall = async () => {
+          if (!deferredPrompt) return false;
+          await deferredPrompt.prompt();
+          const { outcome } = await deferredPrompt.userChoice;
+          if (outcome === "accepted") {
+            setDeferredPrompt(null);
+            return true;
+          }
+          return false;
+        };
+
+        return {
+          canDirectInstall: Boolean(deferredPrompt),
+          isInstalled,
+          isIOS,
+          promptInstall,
+        };
+      }
+
+      function LocalQRCode({ value, size = 160 }) {
+        const svgMarkup = useMemo(() => {
+          try {
+            if (!window.QRCode) return "";
+            const qr = new window.QRCode({
+              content: value || window.location.href,
+              padding: 1,
+              width: size,
+              height: size,
+              color: "#0f172a",
+              background: "#ffffff",
+              ecl: "M",
+            });
+            return qr.svg();
+          } catch {
+            return "";
+          }
+        }, [value, size]);
+
+        if (!svgMarkup) {
+          return (
+            <div className="w-40 h-40 flex items-center justify-center text-xs text-slate-500">
+              QR unavailable
+            </div>
+          );
+        }
+
+        return (
+          <div
+            className="flex items-center justify-center"
+            dangerouslySetInnerHTML={{ __html: svgMarkup }}
+          />
+        );
+      }
+
+      function ShareInstallSheet({ isOpen, onClose }) {
+        const { canDirectInstall, isInstalled, isIOS, promptInstall } = usePWAInstall();
+        const [shareUrl, setShareUrl] = useState(() =>
+          window.location.href && window.location.href !== "about:blank"
+            ? window.location.href
+            : "https://example.com"
+        );
+        const [copied, setCopied] = useState(false);
+        const [lang, setLang] = useState("FIL");
+
+        useEffect(() => {
+          if (!isOpen) return;
+          if (window.location.protocol.startsWith("http")) {
+            setShareUrl(window.location.origin + window.location.pathname);
+            fetch("/api/app-info")
+              .then((r) => (r.ok ? r.json() : null))
+              .then((data) => {
+                if (data?.canonicalUrl) setShareUrl(data.canonicalUrl);
+              })
+              .catch(() => {});
+          }
+        }, [isOpen]);
+
+        if (!isOpen) return null;
+
+        const handleCopy = async () => {
+          try {
+            await navigator.clipboard.writeText(shareUrl);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          } catch {
+            setCopied(false);
+          }
+        };
+
+        const handleNativeShare = async () => {
+          if (navigator.share) {
+            try {
+              await navigator.share({
+                title: "AI Studio Workspace",
+                text:
+                  lang === "FIL"
+                    ? "Subukan mo itong AI Studio App (Free)!"
+                    : "Check out this AI Studio App (Free)!",
+                url: shareUrl,
+              });
+            } catch {}
+          } else {
+            handleCopy();
+          }
+        };
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-4">
+            <div className="w-full max-w-md rounded-2xl bg-slate-900 text-white p-6 shadow-2xl border border-slate-800">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">
+                  {lang === "FIL" ? "I-share at I-install ang App" : "Share & Install App"}
+                </h2>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setLang(lang === "FIL" ? "EN" : "FIL")}
+                    className="text-xs px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 font-medium"
+                  >
+                    {lang === "FIL" ? "EN" : "FIL"}
+                  </button>
+                  <button
+                    onClick={onClose}
+                    className="text-slate-400 hover:text-white px-2 text-lg leading-none"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-col items-center justify-center bg-white p-4 rounded-xl mb-4">
+                <LocalQRCode value={shareUrl} size={160} />
+                <span className="text-xs text-slate-600 mt-2 font-mono break-all text-center">
+                  {shareUrl}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 mb-5">
+                <button
+                  onClick={handleCopy}
+                  className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm font-medium transition"
+                >
+                  {copied
+                    ? lang === "FIL"
+                      ? "Nakopya na!"
+                      : "Copied!"
+                    : lang === "FIL"
+                    ? "Kopyahin ang Link"
+                    : "Copy URL"}
+                </button>
+                <button
+                  onClick={handleNativeShare}
+                  className="py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm font-medium transition"
+                >
+                  {lang === "FIL" ? "I-share" : "Share"}
+                </button>
+              </div>
+
+              <div className="rounded-xl bg-slate-800/80 p-4 border border-slate-700/70">
+                {isInstalled ? (
+                  <p className="text-sm text-emerald-400 text-center font-medium">
+                    {lang === "FIL"
+                      ? "✓ Naka-install na ang app na ito sa device mo."
+                      : "✓ This app is already installed on your device."}
+                  </p>
+                ) : canDirectInstall ? (
+                  <button
+                    onClick={promptInstall}
+                    className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold text-sm transition"
+                  >
+                    {lang === "FIL" ? "I-install Direkta sa Device" : "Install App Directly"}
+                  </button>
+                ) : (
+                  <div className="text-xs text-slate-300 space-y-1.5">
+                    <p className="font-semibold text-white">
+                      {lang === "FIL"
+                        ? isIOS
+                          ? "Paano i-install sa iPhone / iPad:"
+                          : "Paano i-install sa Browser:"
+                        : isIOS
+                        ? "How to install on iPhone / iPad:"
+                        : "How to install from Browser:"}
+                    </p>
+                    {lang === "FIL" ? (
+                      <ol className="list-decimal list-inside space-y-1 text-slate-300">
+                        <li>
+                          Pindutin ang <strong>Share</strong> icon (o menu <strong>⋮</strong>) sa browser.
+                        </li>
+                        <li>
+                          Piliin ang <strong>Add to Home Screen</strong> o <strong>Install App</strong>.
+                        </li>
+                        <li>
+                          I-tap ang <strong>Add</strong> para lumabas sa home screen mo.
+                        </li>
+                      </ol>
+                    ) : (
+                      <ol className="list-decimal list-inside space-y-1 text-slate-300">
+                        <li>
+                          Tap the <strong>Share</strong> icon (or browser menu <strong>⋮</strong>).
+                        </li>
+                        <li>
+                          Select <strong>Add to Home Screen</strong> or <strong>Install App</strong>.
+                        </li>
+                        <li>
+                          Tap <strong>Add</strong> to place it on your home screen.
+                        </li>
+                      </ol>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      function App() {
+        const [sheetOpen, setSheetOpen] = useState(false);
+
+        return (
+          <div className="min-h-screen bg-slate-950 text-white p-5 sm:p-8">
+            <header className="max-w-3xl mx-auto flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div>
+                  <h1 className="text-xl font-bold tracking-tight">Studio Workspace</h1>
+                  <p className="text-xs text-slate-400">Single-file PWA Share & Install UI</p>
+                </div>
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                  FREE
+                </span>
+              </div>
+              <button
+                onClick={() => setSheetOpen(true)}
+                className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium transition"
+              >
+                Install / Share
+              </button>
+            </header>
+
+            <main className="max-w-3xl mx-auto mt-8 rounded-2xl bg-slate-900/60 border border-slate-800 p-6">
+              <p className="text-sm text-slate-300">
+                Handa na ang workspace (<strong>Free</strong>). Pindutin ang{" "}
+                <strong>Install / Share</strong> sa itaas para makita ang QR code, share options, at install guide.
+              </p>
+            </main>
+
+            <ShareInstallSheet isOpen={sheetOpen} onClose={() => setSheetOpen(false)} />
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>
